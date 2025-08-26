@@ -8,11 +8,10 @@ export default defineConfig({
   outDir: 'dist',
   banner: {
     // Replace it with your extension's metadata
-    js: `// Name: FurryR's example Extension
-// ID: newExtension
-// Description: Scaffolding for Advanced Scratch extensions.
-// By: You
-// Original: Me
+    js: `// Name: FrameLoop NextGen
+// ID: frameloopng
+// Description: The next generation of TurboWarp frame loop.
+// By: FurryR
 // License: MPL-2.0
 `
   },
