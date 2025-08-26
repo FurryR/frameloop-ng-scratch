@@ -27,6 +27,6 @@
     "typescript": "^5.4.3"
   },
   "dependencies": {
-    "setimmediate": "git+ssh://git@github.com:FurryR/setImmediate-plus.git"
+    "setimmediate": "^1.0.5"
   }
 }
