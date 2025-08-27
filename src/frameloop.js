@@ -2,6 +2,7 @@
 // The VM loop logic has become much more complex
 
 import 'setimmediate'
+import * as interpolate from './tw-interpolate'
 
 /**
  * Numeric ID for RenderWebGL.draw in Profiler instances.
@@ -23,8 +24,8 @@ const taskWrapper = (callback, requestFn, cancelFn, manualInterval) => {
   let id
   let cancelled = false
   const handle = () => {
-    if (manualInterval) id = requestFn(handle)
     callback()
+    if (manualInterval) id = requestFn(handle)
   }
   const cancel = () => {
     if (!cancelled) cancelFn(id)
@@ -40,7 +41,7 @@ class FrameLoop {
   constructor(runtime) {
     this.runtime = runtime
     this.running = false
-    this.setFramerate(30)
+    this.setFramerate(this.runtime.frameLoop?.framerate ?? 30)
     this.setInterpolation(false)
     this._lastRenderTime = 0
     this._lastStepTime = 0
@@ -88,6 +89,9 @@ class FrameLoop {
         this.framerate === 0 ||
         renderTime - this._lastRenderTime >= this.runtime.currentStepTime
       ) {
+        if (this.runtime.interpolationEnabled) {
+          interpolate.setupInitialState(this)
+        }
         // @todo: Only render when this.redrawRequested or clones rendered.
         if (this.runtime.profiler !== null) {
           if (rendererDrawProfilerId === -1) {
@@ -111,6 +115,23 @@ class FrameLoop {
           this.runtime.currentStepTime = this.runtime.screenRefreshTime
         }
 
+        const aliveThreads =
+          this.runtime.threads.length + this.runtime._lastStepDoneThreads.length
+
+        // Add done threads so that even if a thread finishes within 1 frame, the green
+        // flag will still indicate that a script ran.
+        this.runtime._emitProjectRunStatus(
+          aliveThreads -
+            this.runtime._getMonitorThreadCount([
+              ...this.runtime.threads,
+              ...this.runtime._lastStepDoneThreads
+            ])
+        )
+
+        if (aliveThreads === 0) {
+          this.stop()
+        }
+
         if (this.runtime._refreshTargets) {
           this.runtime.emit(
             this.runtime.constructor.TARGETS_UPDATE,
@@ -119,14 +140,13 @@ class FrameLoop {
           this.runtime._refreshTargets = false
         }
 
-        if (
-          !this.runtime._prevMonitorState.equals(this.runtime._monitorState)
-        ) {
+        if (this.runtime._updateMonitorState) {
           this.runtime.emit(
             this.runtime.constructor.MONITORS_UPDATE,
             this.runtime._monitorState
           )
           this.runtime._prevMonitorState = this.runtime._monitorState
+          this.runtime._updateMonitorState = false
         }
       }
     }

@@ -217,10 +217,6 @@ import * as interpolate from './tw-interpolate'
   let stepThreadsProfilerId: number = -1
 
   runtime._step = function () {
-    if (this.interpolationEnabled) {
-      interpolate.setupInitialState(this)
-    }
-
     if (this.profiler !== null) {
       if (stepProfilerId === -1) {
         stepProfilerId = this.profiler.idByName('Runtime._step')
@@ -255,22 +251,71 @@ import * as interpolate from './tw-interpolate'
     }
     this.emit((runtime.constructor as any).AFTER_EXECUTE)
     this._updateGlows(doneThreads)
-    // Add done threads so that even if a thread finishes within 1 frame, the green
-    // flag will still indicate that a script ran.
-    this._emitProjectRunStatus(
-      this.threads.length +
-        doneThreads.length -
-        this._getMonitorThreadCount([...this.threads, ...doneThreads])
-    )
+    // // Add done threads so that even if a thread finishes within 1 frame, the green
+    // // flag will still indicate that a script ran.
+    // this._emitProjectRunStatus(
+    //   this.threads.length +
+    //     doneThreads.length -
+    //     this._getMonitorThreadCount([...this.threads, ...doneThreads])
+    // )
     // Store threads that completed this iteration for testing and other
     // internal purposes.
     this._lastStepDoneThreads = doneThreads
 
+    if (
+      !this._updateMonitorState &&
+      !this._prevMonitorState.equals(this._monitorState)
+    ) {
+      this._updateMonitorState = true
+    }
     if (this.profiler !== null) {
       this.profiler.stop()
       this.profiler.reportFrames()
     }
   }
+
+  // Power-saving measures
+  const _greenFlag = runtime.greenFlag
+  runtime.greenFlag = function () {
+    if (!this.frameLoop.running) {
+      this.frameLoop.start()
+    }
+    _greenFlag.call(this)
+  }
+  const _toggleScript = runtime.toggleScript
+  runtime.toggleScript = function (topBlockId, options) {
+    if (options?.stackClick && !this.frameLoop.running) {
+      this.frameLoop.start()
+    }
+    _toggleScript.call(this, topBlockId, options)
+  }
+  const patchMonitorBlock = (block: VM.Block) => {
+    let state = (block as any).isMonitored
+    Object.defineProperty(block, 'isMonitored', {
+      get() {
+        return state
+      },
+      set(s) {
+        if (s && !runtime.frameLoop.running) {
+          runtime.frameLoop.start()
+        }
+        state = s
+      }
+    })
+    return block
+  }
+  const _createBlock = (vm.runtime.monitorBlocks as any).createBlock
+  ;(vm.runtime.monitorBlocks as any).createBlock = function (block: VM.Block) {
+    return _createBlock.call(this, patchMonitorBlock(block))
+  }
+  for (const block of Object.values(vm.runtime.monitorBlocks._blocks)) {
+    patchMonitorBlock(block)
+  }
+  runtime.on('PROJECT_START', () => {
+    if (!runtime.frameLoop.running) {
+      runtime.frameLoop.start()
+    }
+  })
   /**
    * tw: Change runtime target frames per second
    * @param {number} framerate Target frames per second
@@ -285,7 +330,6 @@ import * as interpolate from './tw-interpolate'
 
   runtime.frameLoop.stop()
   runtime.frameLoop = new FrameLoop(runtime) as unknown as VM.FrameLoop
-  runtime.frameLoop.start()
 
   class FrameloopNg implements Scratch.Extension {
     constructor() {}
